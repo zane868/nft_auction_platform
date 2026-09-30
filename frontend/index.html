@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MetaNFT - Sepolia</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, "Segoe UI", "PingFang SC", sans-serif;
+      background: #0f1117;
+      color: #e6e6e6;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 40px 16px;
+    }
+    .container { width: 100%; max-width: 560px; }
+    h1 { font-size: 24px; margin-bottom: 4px; }
+    .subtitle { color: #8a8f98; font-size: 14px; margin-bottom: 24px; }
+    .subtitle a { color: #6ea8fe; text-decoration: none; }
+    .card {
+      background: #181b22;
+      border: 1px solid #262b35;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .card h2 { font-size: 16px; margin-bottom: 12px; color: #c8cdd5; }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    label { font-size: 13px; color: #8a8f98; }
+    .value { font-family: monospace; font-size: 13px; word-break: break-all; }
+    button {
+      background: #2d6cdf;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 18px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    button:hover:not(:disabled) { background: #3f7ef0; }
+    button:disabled { background: #2a2e38; color: #666c78; cursor: not-allowed; }
+    button.danger { background: #b3383c; }
+    button.danger:hover:not(:disabled) { background: #cc4448; }
+    input {
+      background: #0f1117;
+      border: 1px solid #262b35;
+      border-radius: 8px;
+      padding: 9px 12px;
+      color: #e6e6e6;
+      font-size: 14px;
+      width: 120px;
+    }
+    input:focus { outline: none; border-color: #2d6cdf; }
+    #status {
+      font-size: 13px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: #0f1117;
+      border: 1px solid #262b35;
+      min-height: 20px;
+      word-break: break-all;
+    }
+    #status.ok { border-color: #2d7d46; color: #7bd88f; }
+    #status.err { border-color: #b3383c; color: #ef8a8d; }
+    .stat { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; }
+    .stat span:last-child { font-family: monospace; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>MetaNFT</h1>
+    <p class="subtitle">
+      Sepolia 测试网 ·
+      <a id="explorerLink" href="#" target="_blank" rel="noopener">合约地址</a>
+    </p>
+
+    <div class="card">
+      <h2>钱包</h2>
+      <div class="row">
+        <button id="connectBtn">连接 MetaMask</button>
+        <span class="value" id="account">未连接</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>合约信息</h2>
+      <div class="stat"><span>名称</span><span id="nftName">-</span></div>
+      <div class="stat"><span>符号</span><span id="nftSymbol">-</span></div>
+      <div class="stat"><span>总铸造量</span><span id="totalSupply">-</span></div>
+      <div class="stat"><span>我的持有量</span><span id="myBalance">-</span></div>
+    </div>
+
+    <div class="card">
+      <h2>我的 NFT</h2>
+      <div class="row">
+        <button id="myTokensBtn" disabled>刷新列表</button>
+      </div>
+      <p style="margin-top:10px"><span class="value" id="myTokens">-</span></p>
+    </div>
+
+    <div class="card">
+      <h2>铸造</h2>
+      <div class="row">
+        <button id="mintBtn" disabled>铸造一枚 NFT 给自己</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>查询持有者</h2>
+      <div class="row">
+        <input id="queryId" type="number" min="1" placeholder="Token ID" />
+        <button id="queryBtn" disabled>查询 ownerOf</button>
+      </div>
+      <p style="margin-top:10px"><span class="value" id="queryResult"></span></p>
+    </div>
+
+    <div class="card">
+      <h2>销毁</h2>
+      <div class="row">
+        <input id="burnId" type="number" min="1" placeholder="Token ID" />
+        <button id="burnBtn" class="danger" disabled>销毁我的 NFT</button>
+      </div>
+    </div>
+
+    <div id="status">就绪</div>
+  </div>
+
+  <script type="module">
+    import {
+      createPublicClient, createWalletClient, custom, http, isAddress,
+    } from "https://esm.sh/viem@2";
+    import { sepolia } from "https://esm.sh/viem@2/chains";
+
+    const CONTRACT_ADDRESS = "0xa89C089c8aD4d0d32aF3d2dC89BA96D0ef069a22";
+
+    // MetaNFT (ERC721Enumerable): name, symbol, totalSupply, balanceOf, ownerOf, mint, burn, GetTokenIdsOfOwner
+    const ABI = [
+      { type: "function", name: "name", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
+      { type: "function", name: "symbol", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
+      { type: "function", name: "totalSupply", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+      { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "owner", type: "address" }], outputs: [{ type: "uint256" }] },
+      { type: "function", name: "ownerOf", stateMutability: "view", inputs: [{ name: "tokenId", type: "uint256" }], outputs: [{ type: "address" }] },
+      { type: "function", name: "mint", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }], outputs: [{ type: "uint256" }] },
+      { type: "function", name: "burn", stateMutability: "nonpayable", inputs: [{ name: "id", type: "uint256" }], outputs: [] },
+      { type: "function", name: "GetTokenIdsOfOwner", stateMutability: "view", inputs: [], outputs: [{ type: "uint256[]" }] },
+    ];
+
+    const $ = (id) => document.getElementById(id);
+    const status = (msg, cls = "") => {
+      $("status").textContent = msg;
+      $("status").className = cls;
+    };
+
+    $("explorerLink").href = `https://sepolia.etherscan.io/address/${CONTRACT_ADDRESS}`;
+    $("explorerLink").textContent = CONTRACT_ADDRESS;
+
+    const publicClient = createPublicClient({ chain: sepolia, transport: http() });
+    let walletClient = null;
+    let account = null;
+
+    async function loadContractInfo() {
+      const [name, symbol, supply] = await Promise.all([
+        publicClient.readContract({ address: CONTRACT_ADDRESS, abi: ABI, functionName: "name" }),
+        publicClient.readContract({ address: CONTRACT_ADDRESS, abi: ABI, functionName: "symbol" }),
+        publicClient.readContract({ address: CONTRACT_ADDRESS, abi: ABI, functionName: "totalSupply" }),
+      ]);
+      $("nftName").textContent = name;
+      $("nftSymbol").textContent = symbol;
+      $("totalSupply").textContent = supply.toString();
+    }
+
+    async function refreshBalance() {
+      if (!account) return;
+      const bal = await publicClient.readContract({
+        address: CONTRACT_ADDRESS, abi: ABI, functionName: "balanceOf", args: [account],
+      });
+      $("myBalance").textContent = bal.toString();
+    }
+
+    async function refreshMyTokens() {
+      if (!account) return;
+      try {
+        const ids = await publicClient.readContract({
+          address: CONTRACT_ADDRESS, abi: ABI, functionName: "GetTokenIdsOfOwner", account,
+        });
+        $("myTokens").textContent = ids.length ? ids.map((i) => `#${i}`).join(", ") : "（暂无）";
+      } catch (e) {
+        $("myTokens").textContent = `查询失败: ${e.shortMessage ?? e.message}`;
+      }
+    }
+
+    $("connectBtn").onclick = async () => {
+      if (!window.ethereum) { status("未检测到 MetaMask", "err"); return; }
+      try {
+        walletClient = createWalletClient({ chain: sepolia, transport: custom(window.ethereum) });
+        const [addr] = await walletClient.requestAddresses();
+        account = addr;
+        const chainId = await walletClient.getChainId();
+        if (chainId !== sepolia.id) {
+          await walletClient.switchChain({ id: sepolia.id });
+        }
+        $("account").textContent = addr;
+        $("connectBtn").textContent = "已连接";
+        ["mintBtn", "queryBtn", "burnBtn", "myTokensBtn"].forEach((id) => ($(id).disabled = false));
+        status("钱包已连接", "ok");
+        await Promise.all([refreshBalance(), refreshMyTokens()]);
+      } catch (e) {
+        status(`连接失败: ${e.shortMessage ?? e.message}`, "err");
+      }
+    };
+
+    async function sendTx(functionName, args, label) {
+      try {
+        status(`${label}: 等待钱包确认...`);
+        // 用公共 RPC 预估 gas（乘 1.2 缓冲），避免 MetaMask 在 revert 场景下给出异常高的 gas
+        const estimated = await publicClient.estimateContractGas({
+          address: CONTRACT_ADDRESS, abi: ABI, functionName, args, account,
+        });
+        const gas = (estimated * 120n) / 100n;
+        const hash = await walletClient.writeContract({
+          address: CONTRACT_ADDRESS, abi: ABI, functionName, args, account, chain: sepolia, gas,
+        });
+        status(`${label}: 交易已发送 ${hash}，等待确认...`);
+        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        status(`${label} 成功！区块 ${receipt.blockNumber}`, "ok");
+        await Promise.all([refreshBalance(), refreshMyTokens(), loadContractInfo()]);
+        return receipt;
+      } catch (e) {
+        status(`${label}失败: ${e.shortMessage ?? e.message}`, "err");
+        return null;
+      }
+    }
+
+    $("mintBtn").onclick = () => sendTx("mint", [account], "铸造");
+    $("myTokensBtn").onclick = refreshMyTokens;
+    $("burnBtn").onclick = async () => {
+      const id = $("burnId").value;
+      if (!id || Number(id) < 1) { status("请输入有效的 Token ID", "err"); return; }
+      try {
+        const owner = await publicClient.readContract({
+          address: CONTRACT_ADDRESS, abi: ABI, functionName: "ownerOf", args: [BigInt(id)],
+        });
+        if (owner.toLowerCase() !== account.toLowerCase()) {
+          status(`销毁失败: 你并非 #${id} 的持有者（持有者: ${owner}）`, "err");
+          return;
+        }
+      } catch {
+        status(`销毁失败: Token #${id} 不存在`, "err");
+        return;
+      }
+      sendTx("burn", [BigInt(id)], `销毁 #${id}`);
+    };
+
+    $("queryBtn").onclick = async () => {
+      const id = $("queryId").value;
+      if (!id || Number(id) < 1) { status("请输入有效的 Token ID", "err"); return; }
+      try {
+        const owner = await publicClient.readContract({
+          address: CONTRACT_ADDRESS, abi: ABI, functionName: "ownerOf", args: [BigInt(id)],
+        });
+        $("queryResult").textContent = `#${id} 持有者: ${owner}`;
+      } catch (e) {
+        $("queryResult").textContent = `#${id} 不存在或查询失败`;
+      }
+    };
+
+    loadContractInfo().catch((e) => status(`读取合约信息失败: ${e.message}`, "err"));
+  </script>
+</body>
+</html>
