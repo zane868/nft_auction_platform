@@ -1,0 +1,13 @@
+{
+  "name": "nft_auction_platform",
+  "version": "1.0.0",
+  "type": "module",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox-viem": "^5.0.7",
+    "forge-std": "github:foundry-rs/forge-std",
+    "hardhat": "^3.18.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}
