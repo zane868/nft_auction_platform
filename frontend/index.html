@@ -54,6 +54,8 @@
       width: 120px;
     }
     input:focus { outline: none; border-color: #2d6cdf; }
+    .price-field { display: block; margin-bottom: 12px; }
+    .price-field input { display: block; width: 100%; margin-top: 6px; }
     #status {
       font-size: 13px;
       padding: 10px 12px;
@@ -125,12 +127,41 @@
       </div>
     </div>
 
+    <div class="card">
+      <h2>美元价格换算</h2>
+      <label class="price-field" for="auctionAddress">Sepolia 拍卖合约地址（代理地址）
+        <input id="auctionAddress" value="0x9BE26b17409AB84D4745c6110784c0aefF9d0b01" placeholder="0x…" autocomplete="off" spellcheck="false" />
+      </label>
+      <p style="margin-bottom:10px">拍卖合约 owner：<span class="value" id="auctionOwner">读取中…</span></p>
+      <p style="margin-bottom:12px" id="ownerStatus" aria-live="polite">未连接钱包，无法判断是否为 owner</p>
+      <button id="refreshOwnerBtn" style="margin-bottom:12px">刷新 owner 状态</button>
+      <label class="price-field" for="priceToken">支付代币地址（原生 ETH 使用零地址）
+        <input id="priceToken" value="0x0000000000000000000000000000000000000000" autocomplete="off" spellcheck="false" />
+      </label>
+      <label class="price-field" for="priceAmount">代币数量
+        <input id="priceAmount" inputmode="decimal" placeholder="例如 0.1" />
+      </label>
+      <div class="row">
+        <button id="oracleBtn">查询 tokenToOracle</button>
+        <button id="getTokenOracleBtn">查询 getTokenOracle</button>
+        <button id="priceBtn">查询美元价值</button>
+      </div>
+      <p style="margin-top:10px">喂价地址：<span class="value" id="oracleResult" aria-live="polite">-</span></p>
+      <p style="margin-top:10px"><span class="value" id="priceResult" aria-live="polite">-</span></p>
+      <label class="price-field" for="oracleAddress" style="margin-top:16px">新的 USD 喂价合约地址（Sepolia）
+        <input id="oracleAddress" placeholder="0x…" autocomplete="off" spellcheck="false" />
+      </label>
+      <button id="setOracleBtn" disabled>设置代币喂价（仅 owner）</button>
+      <p style="margin-top:10px;font-size:13px;color:#8a8f98">设置会更新上方支付代币的喂价映射，需钱包确认并支付 Sepolia ETH gas。</p>
+      <p style="margin-top:10px;font-size:13px;color:#8a8f98">拍卖合约需先为该代币配置以 USD 计价的喂价。此查询无需连接钱包。</p>
+    </div>
+
     <div id="status">就绪</div>
   </div>
 
   <script type="module">
     import {
-      createPublicClient, createWalletClient, custom, http, isAddress,
+      createPublicClient, createWalletClient, custom, http, isAddress, parseUnits, formatUnits, zeroAddress,
     } from "https://esm.sh/viem@2";
     import { sepolia } from "https://esm.sh/viem@2/chains";
 
@@ -148,6 +179,17 @@
       { type: "function", name: "GetTokenIdsOfOwner", stateMutability: "view", inputs: [], outputs: [{ type: "uint256[]" }] },
     ];
 
+    const AUCTION_ABI = [
+      { type: "function", name: "owner", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+      { type: "function", name: "setTokenOracle", stateMutability: "nonpayable", inputs: [{ name: "token", type: "address" }, { name: "oracle", type: "address" }], outputs: [] },
+      { type: "function", name: "getTokenOracle", stateMutability: "view", inputs: [{ name: "token", type: "address" }], outputs: [{ type: "address" }] },
+      { type: "function", name: "tokenToOracle", stateMutability: "view", inputs: [{ name: "token", type: "address" }], outputs: [{ type: "address" }] },
+      { type: "function", name: "getPriceInDollar", stateMutability: "view", inputs: [{ name: "token", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "uint256" }] },
+    ];
+    const TOKEN_DECIMALS_ABI = [
+      { type: "function", name: "decimals", stateMutability: "view", inputs: [], outputs: [{ type: "uint8" }] },
+    ];
+
     const $ = (id) => document.getElementById(id);
     const status = (msg, cls = "") => {
       $("status").textContent = msg;
@@ -160,6 +202,110 @@
     const publicClient = createPublicClient({ chain: sepolia, transport: http() });
     let walletClient = null;
     let account = null;
+    let ownerRequest = 0;
+    let settingOracle = false;
+
+    async function refreshOwnerStatus() {
+      const request = ++ownerRequest;
+      const address = $("auctionAddress").value.trim();
+      $("setOracleBtn").disabled = true;
+      $("auctionOwner").textContent = "读取中…";
+      $("ownerStatus").textContent = "正在检查 owner…";
+      try {
+        if (!isAddress(address) || address.toLowerCase() === zeroAddress) {
+          throw new Error("请输入有效的拍卖合约地址");
+        }
+        const owner = await publicClient.readContract({ address, abi: AUCTION_ABI, functionName: "owner" });
+        const chainId = walletClient && account ? await walletClient.getChainId() : null;
+        if (request !== ownerRequest || address !== $("auctionAddress").value.trim()) return false;
+        $("auctionOwner").textContent = owner;
+        const isOwner = !!account && owner.toLowerCase() === account.toLowerCase();
+        $("ownerStatus").textContent = !account ? "未连接钱包，无法判断是否为 owner"
+          : chainId !== sepolia.id ? "钱包未连接 Sepolia，请切换网络"
+          : isOwner ? "当前钱包是 owner，可以设置喂价" : "当前钱包不是 owner，只能查询喂价";
+        $("setOracleBtn").disabled = settingOracle || !isOwner || chainId !== sepolia.id;
+        return isOwner && chainId === sepolia.id;
+      } catch (e) {
+        if (request !== ownerRequest) return false;
+        $("auctionOwner").textContent = "读取失败";
+        $("ownerStatus").textContent = `无法判断 owner: ${e.shortMessage ?? e.message}`;
+        return false;
+      }
+    }
+
+    $("refreshOwnerBtn").onclick = refreshOwnerStatus;
+    $("auctionAddress").addEventListener("input", () => {
+      $("oracleResult").textContent = "-";
+      $("priceResult").textContent = "-";
+      refreshOwnerStatus();
+    });
+    $("priceToken").addEventListener("input", () => {
+      $("oracleResult").textContent = "-";
+      $("priceResult").textContent = "-";
+    });
+
+    $("setOracleBtn").onclick = async () => {
+      if (settingOracle) return;
+      if (!walletClient || !account) { status("请先连接钱包", "err"); return; }
+      const address = $("auctionAddress").value.trim();
+      const token = $("priceToken").value.trim();
+      const oracle = $("oracleAddress").value.trim();
+      if (!isAddress(token)) { status("请输入有效的支付代币地址", "err"); return; }
+      if (!isAddress(oracle) || oracle.toLowerCase() === zeroAddress) {
+        status("请输入有效的非零喂价地址", "err"); return;
+      }
+      settingOracle = true;
+      $("setOracleBtn").disabled = true;
+      try {
+        if (!await refreshOwnerStatus()) throw new Error("当前钱包必须是 Sepolia 拍卖合约的 owner");
+        const sender = account;
+        if (address !== $("auctionAddress").value.trim()) throw new Error("合约地址已改变，请重新提交");
+        status("设置喂价：等待钱包确认...");
+        const { request } = await publicClient.simulateContract({
+          address, abi: AUCTION_ABI, functionName: "setTokenOracle", args: [token, oracle], account: sender,
+        });
+        const [activeAccount] = await walletClient.getAddresses();
+        if (activeAccount?.toLowerCase() !== sender.toLowerCase() || await walletClient.getChainId() !== sepolia.id) {
+          throw new Error("钱包账户或网络已改变，请重新提交");
+        }
+        const hash = await walletClient.writeContract({ ...request, chain: sepolia });
+        status(`设置喂价：交易已发送 ${hash}，等待确认...`);
+        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        if (receipt.status !== "success") throw new Error("交易执行失败");
+        if (address === $("auctionAddress").value.trim() && token === $("priceToken").value.trim()) {
+          const currentOracle = await publicClient.readContract({ address, abi: AUCTION_ABI, functionName: "tokenToOracle", args: [token] });
+          $("oracleResult").textContent = currentOracle;
+          $("priceResult").textContent = "-";
+        }
+        status(`喂价设置成功！区块 ${receipt.blockNumber}`, "ok");
+      } catch (e) {
+        status(`设置喂价失败: ${e.shortMessage ?? e.message}`, "err");
+      } finally {
+        settingOracle = false;
+        await refreshOwnerStatus();
+      }
+    };
+
+    if (window.ethereum?.on) {
+      window.ethereum.on("accountsChanged", async (accounts) => {
+        account = accounts[0] ?? null;
+        $("account").textContent = account ?? "未连接";
+        $("connectBtn").textContent = account ? "已连接" : "连接 MetaMask";
+        ["mintBtn", "queryBtn", "burnBtn", "myTokensBtn"].forEach(id => ($(id).disabled = !account));
+        $("myBalance").textContent = "-";
+        $("myTokens").textContent = "-";
+        await refreshOwnerStatus();
+        if (account) Promise.all([refreshBalance(), refreshMyTokens()]).catch(e => status(`读取钱包信息失败: ${e.shortMessage ?? e.message}`, "err"));
+      });
+      window.ethereum.on("chainChanged", refreshOwnerStatus);
+      window.ethereum.on("disconnect", () => {
+        account = null;
+        $("account").textContent = "未连接";
+        $("connectBtn").textContent = "连接 MetaMask";
+        ["mintBtn", "queryBtn", "burnBtn", "myTokensBtn"].forEach(id => ($(id).disabled = true));
+        refreshOwnerStatus();
+      });
+    }
 
     async function loadContractInfo() {
       const [name, symbol, supply] = await Promise.all([
@@ -192,6 +338,74 @@
       }
     }
 
+    async function queryOracle(functionName, buttonId) {
+      const address = $("auctionAddress").value.trim();
+      const token = $("priceToken").value.trim();
+      $("oracleResult").textContent = "-";
+      if (!isAddress(address) || address.toLowerCase() === zeroAddress) {
+        status("请输入有效的拍卖合约地址", "err"); return;
+      }
+      if (!isAddress(token)) {
+        status("请输入有效的代币地址，原生 ETH 使用零地址", "err"); return;
+      }
+      $(buttonId).disabled = true;
+      try {
+        status(`${functionName}：正在查询喂价地址...`);
+        const oracle = await publicClient.readContract({
+          address, abi: AUCTION_ABI, functionName, args: [token],
+        });
+        const unset = oracle.toLowerCase() === zeroAddress;
+        $("oracleResult").textContent = `${functionName}：${unset ? "未配置（零地址）" : oracle}`;
+        status(unset ? "该代币尚未配置喂价" : "喂价地址查询成功", unset ? "err" : "ok");
+      } catch (e) {
+        $("oracleResult").textContent = "查询失败";
+        status(`喂价地址查询失败: ${e.shortMessage ?? e.message}`, "err");
+      } finally {
+        $(buttonId).disabled = false;
+      }
+    }
+
+    $("oracleBtn").onclick = () => queryOracle("tokenToOracle", "oracleBtn");
+    $("getTokenOracleBtn").onclick = () => queryOracle("getTokenOracle", "getTokenOracleBtn");
+
+    $("priceBtn").onclick = async () => {
+      const address = $("auctionAddress").value.trim();
+      const token = $("priceToken").value.trim();
+      const amountText = $("priceAmount").value.trim();
+      $("priceResult").textContent = "-";
+      if (!isAddress(address) || address.toLowerCase() === zeroAddress) {
+        status("请输入有效的拍卖合约地址", "err"); return;
+      }
+      if (!isAddress(token)) {
+        status("请输入有效的代币地址，原生 ETH 使用零地址", "err"); return;
+      }
+      if (!/^\d+(\.\d+)?$/.test(amountText)) {
+        status("请输入有效的非负代币数量", "err"); return;
+      }
+      $("priceBtn").disabled = true;
+      try {
+        status("正在查询美元价值...");
+        const decimals = token.toLowerCase() === zeroAddress ? 18 : await publicClient.readContract({
+          address: token, abi: TOKEN_DECIMALS_ABI, functionName: "decimals",
+        });
+        if ((amountText.split(".")[1]?.length ?? 0) > decimals) {
+          throw new Error(`该代币最多支持 ${decimals} 位小数`);
+        }
+        const amount = parseUnits(amountText, decimals);
+        const dollars = await publicClient.readContract({
+          address, abi: AUCTION_ABI, functionName: "getPriceInDollar", args: [token, amount],
+        });
+        // 当前合约的返回值保留输入代币的精度，而不是喂价精度。
+        $("priceResult").textContent = `${formatUnits(dollars, decimals)} USD`;
+        status("美元价值查询成功", "ok");
+      } catch (e) {
+        $("priceResult").textContent = "查询失败";
+        status(`美元价值查询失败: ${e.shortMessage ?? e.message}`, "err");
+      } finally {
+        $("priceBtn").disabled = false;
+      }
+    };
+
     $("connectBtn").onclick = async () => {
       if (!window.ethereum) { status("未检测到 MetaMask", "err"); return; }
       try {
@@ -206,7 +420,7 @@
         $("connectBtn").textContent = "已连接";
         ["mintBtn", "queryBtn", "burnBtn", "myTokensBtn"].forEach((id) => ($(id).disabled = false));
         status("钱包已连接", "ok");
-        await Promise.all([refreshBalance(), refreshMyTokens()]);
+        await Promise.all([refreshOwnerStatus(), refreshBalance(), refreshMyTokens()]);
       } catch (e) {
         status(`连接失败: ${e.shortMessage ?? e.message}`, "err");
       }
@@ -267,6 +481,7 @@
       }
     };
 
+    refreshOwnerStatus();
     loadContractInfo().catch((e) => status(`读取合约信息失败: ${e.message}`, "err"));
   </script>
 </body>

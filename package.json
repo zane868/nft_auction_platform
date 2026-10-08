@@ -12,6 +12,8 @@
     "esbuild@0.28.2": true
   },
   "dependencies": {
-    "@openzeppelin/contracts": "^5.6.1"
+    "@chainlink/contracts": "^1.5.0",
+    "@openzeppelin/contracts": "^5.6.1",
+    "@openzeppelin/contracts-upgradeable": "^5.6.1"
   }
 }
