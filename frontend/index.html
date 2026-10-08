@@ -135,6 +135,11 @@
       <p style="margin-bottom:10px">拍卖合约 owner：<span class="value" id="auctionOwner">读取中…</span></p>
       <p style="margin-bottom:12px" id="ownerStatus" aria-live="polite">未连接钱包，无法判断是否为 owner</p>
       <button id="refreshOwnerBtn" style="margin-bottom:12px">刷新 owner 状态</button>
+      <label class="price-field" for="newOwnerAddress">新 owner 地址
+        <input id="newOwnerAddress" placeholder="0x…" autocomplete="off" spellcheck="false" />
+      </label>
+      <button id="transferOwnerBtn" class="danger" disabled>转移 owner</button>
+      <p style="margin:10px 0 16px;font-size:13px;color:#8a8f98">交易成功后，新地址立即获得喂价设置及合约升级权限，当前 owner 失去这些权限。请确认新地址由你或预期的接收方控制。</p>
       <label class="price-field" for="priceToken">支付代币地址（原生 ETH 使用零地址）
         <input id="priceToken" value="0x0000000000000000000000000000000000000000" autocomplete="off" spellcheck="false" />
       </label>
@@ -180,6 +185,7 @@
     ];
 
     const AUCTION_ABI = [
+      { type: "function", name: "transferOwnership", stateMutability: "nonpayable", inputs: [{ name: "newOwner", type: "address" }], outputs: [] },
       { type: "function", name: "owner", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
       { type: "function", name: "setTokenOracle", stateMutability: "nonpayable", inputs: [{ name: "token", type: "address" }, { name: "oracle", type: "address" }], outputs: [] },
       { type: "function", name: "getTokenOracle", stateMutability: "view", inputs: [{ name: "token", type: "address" }], outputs: [{ type: "address" }] },
@@ -204,11 +210,13 @@
     let account = null;
     let ownerRequest = 0;
     let settingOracle = false;
+    let transferringOwner = false;
 
     async function refreshOwnerStatus() {
       const request = ++ownerRequest;
       const address = $("auctionAddress").value.trim();
       $("setOracleBtn").disabled = true;
+      $("transferOwnerBtn").disabled = true;
       $("auctionOwner").textContent = "读取中…";
       $("ownerStatus").textContent = "正在检查 owner…";
       try {
@@ -222,8 +230,9 @@
         const isOwner = !!account && owner.toLowerCase() === account.toLowerCase();
         $("ownerStatus").textContent = !account ? "未连接钱包，无法判断是否为 owner"
           : chainId !== sepolia.id ? "钱包未连接 Sepolia，请切换网络"
-          : isOwner ? "当前钱包是 owner，可以设置喂价" : "当前钱包不是 owner，只能查询喂价";
-        $("setOracleBtn").disabled = settingOracle || !isOwner || chainId !== sepolia.id;
+          : isOwner ? "当前钱包是 owner，可以设置喂价和转移 owner" : "当前钱包不是 owner，只能查询喂价";
+        $("setOracleBtn").disabled = settingOracle || transferringOwner || !isOwner || chainId !== sepolia.id;
+        $("transferOwnerBtn").disabled = settingOracle || transferringOwner || !isOwner || chainId !== sepolia.id;
         return isOwner && chainId === sepolia.id;
       } catch (e) {
         if (request !== ownerRequest) return false;
@@ -245,7 +254,7 @@
     });
 
     $("setOracleBtn").onclick = async () => {
-      if (settingOracle) return;
+      if (settingOracle || transferringOwner) return;
       if (!walletClient || !account) { status("请先连接钱包", "err"); return; }
       const address = $("auctionAddress").value.trim();
       const token = $("priceToken").value.trim();
@@ -282,6 +291,48 @@
         status(`设置喂价失败: ${e.shortMessage ?? e.message}`, "err");
       } finally {
         settingOracle = false;
+        await refreshOwnerStatus();
+      }
+    };
+
+    $("transferOwnerBtn").onclick = async () => {
+      if (settingOracle || transferringOwner) return;
+      if (!walletClient || !account) { status("请先连接钱包", "err"); return; }
+      const address = $("auctionAddress").value.trim();
+      const newOwner = $("newOwnerAddress").value.trim();
+      if (!isAddress(newOwner) || newOwner.toLowerCase() === zeroAddress) {
+        status("请输入有效的非零新 owner 地址", "err"); return;
+      }
+      if (newOwner.toLowerCase() === account.toLowerCase()) {
+        status("新 owner 地址不能与当前 owner 相同", "err"); return;
+      }
+      transferringOwner = true;
+      $("transferOwnerBtn").disabled = true;
+      $("setOracleBtn").disabled = true;
+      try {
+        if (!await refreshOwnerStatus()) throw new Error("当前钱包必须是 Sepolia 拍卖合约的 owner");
+        const sender = account;
+        if (address !== $("auctionAddress").value.trim()) throw new Error("合约地址已改变，请重新提交");
+        status(`转移 owner 至 ${newOwner}：等待钱包确认...`);
+        const { request } = await publicClient.simulateContract({
+          address, abi: AUCTION_ABI, functionName: "transferOwnership", args: [newOwner], account: sender,
+        });
+        const [activeAccount] = await walletClient.getAddresses();
+        if (activeAccount?.toLowerCase() !== sender.toLowerCase() || await walletClient.getChainId() !== sepolia.id) {
+          throw new Error("钱包账户或网络已改变，请重新提交");
+        }
+        if (address !== $("auctionAddress").value.trim() || newOwner !== $("newOwnerAddress").value.trim()) {
+          throw new Error("合约或新 owner 地址已改变，请重新提交");
+        }
+        const hash = await walletClient.writeContract({ ...request, chain: sepolia });
+        status(`转移 owner：交易已发送 ${hash}，等待确认...`);
+        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        if (receipt.status !== "success") throw new Error("交易执行失败");
+        status(`owner 已转移至 ${newOwner}！区块 ${receipt.blockNumber}`, "ok");
+      } catch (e) {
+        status(`转移 owner 失败: ${e.shortMessage ?? e.message}`, "err");
+      } finally {
+        transferringOwner = false;
         await refreshOwnerStatus();
       }
     };
