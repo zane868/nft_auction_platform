@@ -1,0 +1,9 @@
+{
+  "chainId": 11155111,
+  "proxy": "0x2Bb7F1bF9FF5e3DFF41CF42A3Cccb47D9317b7D4",
+  "implementation": "0xF354C2E6221c695b0EcB907D5031C2a748AfcA73",
+  "previousImplementation": "0x00000000000000000000000077ab6fc8c4c8eb87bcef0ba9a191312445568c6e",
+  "owner": "0xEeBD193Cb96D61E93D22FdAeD12313E2BeC8ef6c",
+  "status": "upgraded-and-checked",
+  "transaction": "0x1cfd3f7a2e735e7add03ef6d32da6c6eee542a2561f835482ce8c6a2e492b340"
+}

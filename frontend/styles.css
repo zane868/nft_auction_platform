@@ -1,0 +1,102 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, "Segoe UI", "PingFang SC", sans-serif;
+  background: #0f1117;
+  color: #e6e6e6;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  padding: 40px 16px;
+}
+.container { width: 100%; max-width: 720px; }
+h1 { font-size: 24px; margin-bottom: 4px; }
+.subtitle { color: #8a8f98; font-size: 14px; margin-bottom: 24px; }
+.subtitle a { color: #6ea8fe; text-decoration: none; }
+.card {
+  background: #181b22;
+  border: 1px solid #262b35;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.card h2 { font-size: 16px; margin-bottom: 12px; color: #c8cdd5; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+label { font-size: 13px; color: #8a8f98; }
+.value { font-family: monospace; font-size: 13px; word-break: break-all; }
+button {
+  background: #2d6cdf;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 18px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+button:hover:not(:disabled) { background: #3f7ef0; }
+button:disabled { background: #2a2e38; color: #666c78; cursor: not-allowed; }
+button.danger { background: #b3383c; }
+button.danger:hover:not(:disabled) { background: #cc4448; }
+input {
+  background: #0f1117;
+  border: 1px solid #262b35;
+  border-radius: 8px;
+  padding: 9px 12px;
+  color: #e6e6e6;
+  font-size: 14px;
+  width: 120px;
+}
+input:focus { outline: none; border-color: #2d6cdf; }
+.price-field { display: block; margin-bottom: 12px; }
+.price-field input { display: block; width: 100%; margin-top: 6px; }
+[hidden] { display: none !important; }
+.status-panel {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(720px, calc(100% - 24px));
+  z-index: 1000;
+  padding: 16px 20px;
+  border-radius: 12px;
+  background: #192840;
+  border: 2px solid #6ea8fe;
+  box-shadow: 0 8px 40px #0009;
+}
+.status-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
+.status-heading strong { font-size: 17px; }
+.dismiss-status { background: transparent; color: inherit; border: 1px solid currentColor; padding: 5px 10px; }
+#status { font-size: 15px; line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap; max-height: 25vh; overflow-y: auto; }
+.status-panel.ok { background: #163322; border-color: #7bd88f; color: #b5f3c4; }
+.status-panel.err { background: #491e25; border-color: #ff737b; color: #ffe4e6; }
+.action-feedback { margin-top: 12px; padding: 12px 14px; border: 1px solid #ff737b; border-left: 4px solid #ff737b; border-radius: 8px; background: #491e25; color: #ffe4e6; font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.stat { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; }
+.stat span:last-child { font-family: monospace; }
+
+.navigation { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.navigation a { color: #a9c9ff; background: #181b22; border: 1px solid #262b35; padding: 8px 12px; border-radius: 8px; text-decoration: none; font-size: 13px; }
+.navigation a:hover { border-color: #6ea8fe; }
+.card { scroll-margin-top: 16px; }
+.stat { gap: 12px; }
+.stat span:last-child { overflow-wrap: anywhere; }
+input { max-width: 100%; }
+#queryAuctionId { flex: 1; min-width: 180px; }
+@media (max-width: 480px) { body { padding: 20px 12px; } .card { padding: 16px; } }
+
+.result { margin-top: 10px; }
+.owner-address { margin-bottom: 10px; }
+.space-after { margin-bottom: 12px; }
+.space-before { margin-top: 16px; }
+.hint, .intro-hint, .admin-hint, .detail-hint { font-size: 13px; color: #8a8f98; }
+.hint { margin-top: 10px; }
+.intro-hint { margin-bottom: 12px; }
+.admin-hint { margin: 10px 0 16px; }
+.detail-hint { margin-top: 8px; }
+.conversion-details { margin-top: 10px; font-size: 13px; }
+.conversion-output { white-space: pre-wrap; margin-top: 8px; }
+.auction-output { white-space: pre-wrap; margin-top: 10px; }
+
+select { width: 100%; margin-top: 6px; background: #0f1117; color: #e6e6e6; border: 1px solid #262b35; border-radius: 8px; padding: 9px 12px; font-size: 14px; }
+
+body { padding-bottom: 200px; }
+@media (max-width: 480px) { .status-panel { bottom: 12px; padding: 12px 14px; } }
